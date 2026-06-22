@@ -20,6 +20,8 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/s3", requireAuth, s3Router);
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+
+
+app.listen(5000, "0.0.0.0", () => {
+  console.log("Server running on port 5000");
 });
