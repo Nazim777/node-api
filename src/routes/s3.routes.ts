@@ -8,13 +8,23 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, BUCKET_NAME } from "../config/s3";
+import redis from "../config/redis";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// List all objects in the bucket
+const FILES_CACHE_KEY = "s3:files";
+const FILES_TTL_SECONDS = 30;
+
+// List all objects in the bucket (cached)
 router.get("/files", async (_req: Request, res: Response) => {
   try {
+    const cached = await redis.get(FILES_CACHE_KEY);
+    if (cached) {
+      res.json({ files: JSON.parse(cached), fromCache: true });
+      return;
+    }
+
     const command = new ListObjectsV2Command({ Bucket: BUCKET_NAME });
     const data = await s3Client.send(command);
     const files = (data.Contents ?? []).map((item) => ({
@@ -22,13 +32,15 @@ router.get("/files", async (_req: Request, res: Response) => {
       size: item.Size,
       lastModified: item.LastModified,
     }));
-    res.json({ files });
+
+    await redis.setex(FILES_CACHE_KEY, FILES_TTL_SECONDS, JSON.stringify(files));
+    res.json({ files, fromCache: false });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
 });
 
-// Upload a file
+// Upload a file (invalidates cache)
 router.post(
   "/upload",
   upload.single("file"),
@@ -45,6 +57,7 @@ router.post(
         ContentType: req.file.mimetype,
       });
       await s3Client.send(command);
+      await redis.del(FILES_CACHE_KEY);
       res.json({ message: "File uploaded successfully", key: req.file.originalname });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -52,7 +65,7 @@ router.post(
   }
 );
 
-// Get a presigned download URL for a file
+// Get a presigned download URL
 router.get("/download/:key", async (req: Request, res: Response) => {
   try {
     const command = new GetObjectCommand({
@@ -66,7 +79,7 @@ router.get("/download/:key", async (req: Request, res: Response) => {
   }
 });
 
-// Delete a file
+// Delete a file (invalidates cache)
 router.delete("/delete/:key", async (req: Request, res: Response) => {
   try {
     const command = new DeleteObjectCommand({
@@ -74,6 +87,7 @@ router.delete("/delete/:key", async (req: Request, res: Response) => {
       Key: req.params.key,
     });
     await s3Client.send(command);
+    await redis.del(FILES_CACHE_KEY);
     res.json({ message: "File deleted successfully" });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

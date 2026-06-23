@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import prisma from "../config/prisma";
+import redis from "../config/redis";
+import { requireAuth, AuthRequest } from "../middleware/auth";
 
 const router = Router();
 
@@ -60,6 +62,17 @@ router.post("/login", async (req: Request, res: Response) => {
   });
 
   res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+});
+
+// Logout — blacklist the token in Redis until it expires
+router.post("/logout", requireAuth, async (req: AuthRequest, res: Response) => {
+  const token = req.headers.authorization!.slice(7);
+  const payload = jwt.decode(token) as { exp?: number };
+  const ttl = payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 60 * 60 * 24 * 7;
+  if (ttl > 0) {
+    await redis.setex(`blacklist:${token}`, ttl, "1");
+  }
+  res.json({ message: "Logged out successfully" });
 });
 
 export default router;
