@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import s3Router from "./routes/s3.routes";
 import authRouter from "./routes/auth.routes";
 import { requireAuth } from "./middleware/auth";
+import { startEmailWorker } from "./worker/emailWorker";
 
 dotenv.config();
 
@@ -24,4 +25,5 @@ app.use("/api/s3", requireAuth, s3Router);
 
 app.listen(5000, "0.0.0.0", () => {
   console.log("Server running on port 5000");
+  startEmailWorker();
 });

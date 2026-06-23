@@ -1,8 +1,10 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import prisma from "../config/prisma";
 import redis from "../config/redis";
+import { sqsClient, QUEUE_URL } from "../config/sqs";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 
 const router = Router();
@@ -33,6 +35,13 @@ router.post("/register", async (req: Request, res: Response) => {
   const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
     expiresIn: "7d",
   });
+
+  sqsClient.send(
+    new SendMessageCommand({
+      QueueUrl: QUEUE_URL,
+      MessageBody: JSON.stringify({ name: user.name, email: user.email }),
+    })
+  ).catch((err) => console.error("SQS send error:", err.message));
 
   res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email } });
 });
