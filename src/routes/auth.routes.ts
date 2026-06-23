@@ -45,6 +45,15 @@ router.post("/login", async (req: Request, res: Response) => {
     return;
   }
 
+  const ip = req.ip ?? "unknown";
+  const rateLimitKey = `rate_limit:login:${ip}`;
+  const attempts = await redis.incr(rateLimitKey);
+  if (attempts === 1) await redis.expire(rateLimitKey, 60);
+  if (attempts > 10) {
+    res.status(429).json({ error: "Too many login attempts. Try again in 1 minute." });
+    return;
+  }
+
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     res.status(401).json({ error: "Invalid credentials" });
@@ -56,6 +65,8 @@ router.post("/login", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+
+  await redis.del(rateLimitKey);
 
   const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET!, {
     expiresIn: "7d",
